@@ -2,6 +2,14 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import altair as alt 
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+api_key = os.getenv("GOOGLE_API_KEY")
+
+#print
 
 # --- Configuración de la Página y Variables ---
 st.set_page_config(layout="wide", page_title="Análisis Judicial Interactivo")
