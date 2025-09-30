@@ -7,9 +7,7 @@ import os
 
 load_dotenv()
 
-api_key = os.getenv("GOOGLE_API_KEY")
-
-#print
+api_key = os.getenv("GOOGLE_API_KEY") 
 
 # --- Configuración de la Página y Variables ---
 st.set_page_config(layout="wide", page_title="Análisis Judicial Interactivo")
@@ -18,15 +16,15 @@ st.set_page_config(layout="wide", page_title="Análisis Judicial Interactivo")
 ARCHIVO_CSV_URL = "https://github.com/felipevilla2105-ops/curso-talento-t/raw/refs/heads/main/carga_ficticia_111.csv" 
 
 FECHA_ACTUAL = datetime.now()
-LIMITE_MESES = 2 # Límite de meses para Inactividad y Últimas Actuaciones
-LIMITE_QUERELLA_MESES = 6 # Límite de meses para Caducidad
+LIMITE_MESES = 2 
+LIMITE_QUERELLA_MESES = 6 
 
-st.image('IMG/Imagen4.png', use_container_width=True)
+# st.image('IMG\Imagen1.png', use_container_width=True) 
 
 # --- Función de Carga de Datos (Cacheada) ---
 @st.cache_data
 def cargar_datos(url):
-    """Carga el archivo CSV desde una URL, limpia y convierte las columnas de fecha."""
+    """Carga el archivo CSV desde una URL, limpia, convierte y ajusta las columnas de fecha."""
     try:
         df = pd.read_csv(url)
         
@@ -36,10 +34,14 @@ def cargar_datos(url):
             # Intentar convertir al formato datetime, forzando NaT en caso de error
             df[col] = pd.to_datetime(df[col], errors='coerce') 
             
-        # 2. Limpieza de texto (para comparaciones)
+        # 2. ELIMINAR LA HORA en la fecha de última actuación (Nuevo Requisito)
+        if 'Fecha Última Actuación' in df.columns:
+            df['Fecha Última Actuación'] = df['Fecha Última Actuación'].dt.normalize()
+            
+        # 3. Limpieza de texto (para comparaciones)
         for col in ['Tipo de Noticia', 'Última Actuación', 'Caracterización']:
             if col in df.columns:
-                df[col] = df[col].astype(str).str.upper().str.strip()
+                df[col] = df[col].astype(str).str.upper().str.strip() 
             
         return df
     except Exception as e:
@@ -58,43 +60,44 @@ if df is not None:
     
     # --- 0. PREPARACIÓN DE DATOS Y DEFINICIÓN DE LÍMITES ---
     
-    # Límite de fecha para actuaciones (2 meses atrás)
     limite_actuacion = FECHA_ACTUAL - pd.DateOffset(months=LIMITE_MESES)
     
     # --- 1. CADUCIDAD DE LA QUERELLA ---
     df_querellable = df[df['Tipo de Noticia'] == 'QUERELLA'].copy()
-    
-    # Calcular diferencia en días (solo si la denuncia es posterior o igual a los hechos)
     df_querellable['Dias_Transcurridos'] = (df_querellable['Fecha de la denuncia'] - df_querellable['Fecha de los Hechos']).dt.days
     df_querellable['Tiempo_Transcurrido'] = df_querellable['Dias_Transcurridos'] / 30.4375
-    
-    # Filtrar casos que superan el límite (y donde la diferencia es positiva)
     casos_caducidad = df_querellable[
         (df_querellable['Tiempo_Transcurrido'] > LIMITE_QUERELLA_MESES) & 
         (df_querellable['Dias_Transcurridos'] > 0)
-    ]
+    ].sort_values(by='Fecha de los Hechos', ascending=True) # ORDENADO: Del más viejo al más nuevo
+
     total_caducidad = len(casos_caducidad)
     
     # --- 2. INACTIVIDAD GENERAL ---
     casos_inactivos_general = df[
         (df['Fecha Última Actuación'].isnull()) | 
         (df['Fecha Última Actuación'] < limite_actuacion)
-    ]
+    ].sort_values(by='Fecha Última Actuación', ascending=True, na_position='first') # ORDENADO: Del más viejo al más nuevo
+
     total_inactivos_general = len(casos_inactivos_general)
     
-    # --- 3. INACTIVIDAD DEL DENUNCIANTE (CORRECCIÓN APLICADA) ---
+    # --- 3. INACTIVIDAD DEL DENUNCIANTE ---
     ACTUACION_INACTIVIDAD = 'SOLICITUD A DENUNCIANTE DE INFORMACIÓN ADICIONAL'
-    
-    # Filtrar casos con la actuación específica Y más de 2 meses sin movimiento
     casos_archivo_inactividad = df[
         (df['Última Actuación'] == ACTUACION_INACTIVIDAD) & 
         (df['Fecha Última Actuación'] < limite_actuacion)
-    ]
+    ].sort_values(by='Fecha Última Actuación', ascending=True) # ORDENADO: Del más viejo al más nuevo
+
     total_archivo_inactividad = len(casos_archivo_inactividad)
     
     # --- 4. CONCILIACIÓN ---
-    casos_conciliacion_archivo = df[df['Última Actuación'].str.contains('CONCILIACIÓN CON ACUERDO', na=False)]
-    casos_conciliacion_continuar = df[df['Última Actuación'].str.contains('CONCILIACIÓN (FRACASADA|SIN ACUERDO)', na=False)]
+    casos_conciliacion_archivo = df[df['Última Actuación'].str.contains('CONCILIACIÓN CON ACUERDO', na=False)].sort_values(by='Fecha Última Actuación', ascending=True)
+    
+    casos_conciliacion_continuar = df[
+        df['Última Actuación'].str.contains('FRACASADA|SIN ACUERDO', na=False) 
+        & df['Última Actuación'].str.contains('CONCILIACIÓN', na=False)
+    ].sort_values(by='Fecha Última Actuación', ascending=True) # ORDENADO: Del más viejo al más nuevo
+    
     total_conciliacion_archivo = len(casos_conciliacion_archivo)
     total_conciliacion_continuar = len(casos_conciliacion_continuar)
     
@@ -102,7 +105,7 @@ if df is not None:
     # --- Panel de Métricas Clave (KPI Dashboard) ---
     st.subheader("📊 Resumen de Alertas Activas")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5) 
 
     col1.metric(
         label="🚨 Casos de Caducidad de Querella",
@@ -123,6 +126,12 @@ if df is not None:
         delta_color="normal"
     )
     col4.metric(
+        label="⏩ Conciliación Fracasada/Sin Acuerdo",
+        value=total_conciliacion_continuar,
+        delta="Listos para continuar el proceso",
+        delta_color="off"
+    )
+    col5.metric(
         label="⛔ Inactividad del Denunciante",
         value=total_archivo_inactividad,
         delta="Posibles casos a archivar",
@@ -136,7 +145,7 @@ if df is not None:
         "📅 Caducidad de la Querella", 
         "⏳ Últimas Actuaciones (Avance)", 
         "🤝 Estado de Conciliación", 
-        "📈 Modos de las Estafas"
+        "📈 Modos de las Estafas (Top 5)"
     ])
 
     # ====================================================================
@@ -144,7 +153,7 @@ if df is not None:
     # ====================================================================
     with tab1:
         st.subheader("Análisis de Caducidad por Plazo Legal")
-        st.info(f"Filtro: Casos tipo 'QUERELLA' con más de **{LIMITE_QUERELLA_MESES} meses** entre la Fecha de los Hechos y la Fecha de la Denuncia.")
+        st.info(f"Filtro: Casos tipo 'QUERELLA' con más de **{LIMITE_QUERELLA_MESES} meses** entre la Fecha de los Hechos y la Fecha de la Denuncia. (Ordenado: más viejo primero)")
 
         if total_caducidad > 0:
             st.warning(f"🚨 **¡ATENCIÓN!** Se encontraron **{total_caducidad}** casos con riesgo de Caducidad de la Querella.")
@@ -167,7 +176,7 @@ if df is not None:
     # ====================================================================
     with tab2:
         st.subheader("1. Procesos sin movimientos recientes (Impulso Necesario)")
-        st.info(f"Filtro: Casos cuya 'Fecha Última Actuación' es anterior al **{limite_actuacion.strftime('%d/%m/%Y')}** (más de {LIMITE_MESES} meses).")
+        st.info(f"Filtro: Casos cuya 'Fecha Última Actuación' es anterior al **{limite_actuacion.strftime('%d/%m/%Y')}**. (Ordenado: más viejo primero)")
         
         if total_inactivos_general > 0:
             st.warning(f"⏳ **¡Avanzar con el proceso!** Hay **{total_inactivos_general}** procesos que no registran nuevas actuaciones en los últimos dos meses.")
@@ -181,7 +190,7 @@ if df is not None:
         st.markdown("---")
             
         st.subheader("2. Inactividad del Denunciante (Sugerencia de Archivo)")
-        st.info(f"Filtro: Casos con 'Última Actuación' = **{ACTUACION_INACTIVIDAD}** y esta es anterior al **{limite_actuacion.strftime('%d/%m/%Y')}**.")
+        st.info(f"Filtro: Casos con 'Última Actuación' = **{ACTUACION_INACTIVIDAD}** y esta es anterior al **{limite_actuacion.strftime('%d/%m/%Y')}**. (Ordenado: más viejo primero)")
         
         if total_archivo_inactividad > 0:
             st.error(f"⛔ **¡Se puede proceder con el archivo del caso!** Se encontraron **{total_archivo_inactividad}** casos que cumplen el criterio de inactividad del denunciante.")
@@ -198,12 +207,13 @@ if df is not None:
     # ====================================================================
     with tab3:
         st.subheader("Análisis de Conciliación y Seguimiento")
+        st.caption("Los listados se muestran ordenados por fecha de actuación, del más antiguo al más reciente.")
         
         col_c_1, col_c_2 = st.columns(2)
 
         # 3.1. Conciliación con Acuerdo (Archivo)
         with col_c_1:
-            st.markdown("##### Casos con Acuerdo")
+            st.markdown("##### Casos con Acuerdo (Listos para Archivo)")
             if total_conciliacion_archivo > 0:
                 st.success(f"✅ **Proceder con el archivo:** Hay **{total_conciliacion_archivo}** casos con Conciliación con Acuerdo.")
                 with st.expander("Ver listado"):
@@ -216,7 +226,7 @@ if df is not None:
                 
         # 3.2. Conciliación Fracasada/Sin Acuerdo (Continuar)
         with col_c_2:
-            st.markdown("##### Casos Sin Acuerdo/Fracasada")
+            st.markdown("##### Casos Sin Acuerdo / Fracasada (Continuar Proceso)") 
             if total_conciliacion_continuar > 0:
                 st.info(f"➡️ **Continuar con el proceso:** Hay **{total_conciliacion_continuar}** casos de Conciliación Fracasada o Sin Acuerdo.")
                 with st.expander("Ver listado"):
@@ -228,29 +238,32 @@ if df is not None:
                 st.info("No hay casos recientes de Conciliación Fracasada o Sin Acuerdo.")
 
     # ====================================================================
-    # PESTAÑA 4: MODOS DE LA ESTAFAS (GRÁFICA)
+    # PESTAÑA 4: MODOS DE LA ESTAFAS (GRÁFICA TOP 5)
     # ====================================================================
     with tab4:
-        st.subheader("Distribución de Modalidades de Estafa (Caracterización)")
-        st.markdown("Este gráfico muestra las modalidades de estafa más frecuentes para establecer patrones.")
+        st.subheader("Distribución de Modalidades de Estafa (Caracterización) - Top 5")
+        st.markdown("Este gráfico muestra las **5 modalidades** de estafa más frecuentes.")
 
         conteo_modalidades = df['Caracterización'].value_counts().reset_index()
         conteo_modalidades.columns = ['Modalidad', 'Número de Casos']
         
-        if not conteo_modalidades.empty:
-            # Uso de Altair para un gráfico más interactivo
-            chart = alt.Chart(conteo_modalidades.head(10)).mark_bar().encode(
-                x=alt.X('Modalidad', sort='-y', axis=alt.Axis(title='Modalidad (Top 10)', labelAngle=-45)),
+        # Filtrar solo el Top 5
+        top_5_modalidades = conteo_modalidades.head(5)
+        
+        if not top_5_modalidades.empty:
+            # Uso de Altair para un gráfico más interactivo (Limitado a Top 5)
+            chart = alt.Chart(top_5_modalidades).mark_bar().encode(
+                x=alt.X('Modalidad', sort='-y', axis=alt.Axis(title='Modalidad (Top 5)', labelAngle=-45)),
                 y=alt.Y('Número de Casos'),
                 tooltip=['Modalidad', 'Número de Casos']
             ).properties(
-                title="Top 10 Modalidades de Estafa por Caracterización"
+                title="Top 5 Modalidades de Estafa por Caracterización"
             ).interactive()
             
             st.altair_chart(chart, use_container_width=True)
 
-            with st.expander("Ver tabla completa de Modalidades"):
-                st.dataframe(conteo_modalidades, use_container_width=True)
+            with st.expander("Ver tabla del Top 5 de Modalidades"):
+                st.dataframe(top_5_modalidades, use_container_width=True)
 
         else:
             st.warning("No hay datos válidos en la columna 'Caracterización' para generar la gráfica.")
