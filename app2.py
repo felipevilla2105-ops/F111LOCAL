@@ -5,6 +5,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 import os
 
+
 def clasificar(file): 
     # Leer el archivo
     df = pd.read_json(file.name)
