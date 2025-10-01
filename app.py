@@ -19,7 +19,7 @@ FECHA_ACTUAL = datetime.now()
 LIMITE_MESES = 2 
 LIMITE_QUERELLA_MESES = 6 
 
-st.image('IMG\Imagen1.png', use_container_width=True) 
+st.image('IMG/Imagen1.png', use_container_width=True) 
 
 # --- Función de Carga de Datos (Cacheada) ---
 @st.cache_data
